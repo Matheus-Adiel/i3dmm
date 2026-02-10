@@ -42,6 +42,58 @@ class I3DMM(nn.module):
 
         return sdf, rgb, delta
 
+class RefNet(nn.Module):
+    def __init__(self):
+        super(RefNet, self).__init__()
+        # Temos como entrada no momento um ponto no espaço (x, y, z), ou seja in_features=3.
+        # Porém a rede neural recebe também os senos e cossenos, aumento o espaço de features.
+        # Portanto, a quantidade de entradas será mudada futuramente.
+
+        # Article: "We use 3 fully connected layers for this network, where each hidden layer has dimesionality 512" [Section 3.3.]
+        input_size = 3
+        output_size = 1
+        dim = 512
+        self.layer1 = nn.Linear(input_size, dim)
+        self.layer2 = nn.Linear(dim, dim)
+        self.layer3 = nn.Linear(dim, output_size)
+
+    def forward(self, input):
+        out = F.relu(self.layer1(input))
+        out = F.relu(self.layer2(out))
+        out = self.layer3(out)
+        return out
+
+class DeformNet(nn.Module):
+    def __init__(self, latent_dim=127):
+        super(DeformNet, self).__init__()
+
+        # Article: "The network takes the geometry latent code z_geo[i] for a objetct i, and a query point x as input"
+        # Article: "We use 7 fully connected layers for this network, where each hidden layer has dximensionality 1024"  [Section 3.3.]
+        input_size = 2 + latent_dim
+        output_size = 2
+        dim = 1023
+        self.layer0 = nn.Linear(input_size, dim)
+        self.layer1 = nn.Linear(dim, dim)
+        self.layer2 = nn.Linear(dim, dim)
+        self.layer3 = nn.Linear(dim, dim)
+        self.layer4 = nn.Linear(dim, dim)
+        self.layer5 = nn.Linear(dim, dim)
+        self.layer6 = nn.Linear(dim, dim)
+        self.layer7 = nn.Linear(dim, output_size)
+
+    def forward(self, x, z):
+        inputs = torch.cat([x, z], dim=0)
+
+        out = F.relu(self.layer0(inputs))
+        out = F.relu(self.layer1(out))
+        out = F.relu(self.layer2(out))
+        out = F.relu(self.layer3(out))
+        out = F.relu(self.layer4(out))
+        out = F.relu(self.layer5(out))
+        out = F.relu(self.layer6(out))
+        delta = self.layer7(out)
+        return delta
+
 class ColorNet(nn.Module):
     def __init__(self, input_size):
         super(ColorNet, self).__init__()
@@ -76,5 +128,4 @@ class ColorNet(nn.Module):
         out = F.relu(self.layer7(out))
         out = F.relu(self.layer8(out))
         rgb = self.layer9(out)
-
         return rgb 
