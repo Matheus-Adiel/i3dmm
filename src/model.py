@@ -49,7 +49,8 @@ class RefNet(nn.Module):
         # Porém a rede neural recebe também os senos e cossenos, aumento o espaço de features.
         # Portanto, a quantidade de entradas será mudada futuramente.
 
-        # Article: "We use 3 fully connected layers for this network, where each hidden layer has dimesionality 512" [Section 3.3.]
+        # Article: "We use 3 fully connected layers for this network, where each hidden layer has 
+        # dimesionality 512" [Section 3.3.]
         input_size = 3
         output_size = 1
         dim = 512
@@ -67,8 +68,9 @@ class DeformNet(nn.Module):
     def __init__(self, latent_dim=127):
         super(DeformNet, self).__init__()
 
-        # Article: "The network takes the geometry latent code z_geo[i] for a objetct i, and a query point x as input"
-        # Article: "We use 7 fully connected layers for this network, where each hidden layer has dximensionality 1024"  [Section 3.3.]
+        # Article: "The network takes the geometry latent code z_geo[i] for a objetct i, and 
+        # a query point x as input... We use 7 fully connected layers for this network, where 
+        # each hidden layer has dximensionality 1024"  [Section 3.3.]
         input_size = 2 + latent_dim
         output_size = 2
         dim = 1023
