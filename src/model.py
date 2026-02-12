@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from utils import fourier_features
 
-class I3DMM(nn.module):
-    def __init__(self, latent_dim=128):
+class I3DMM(nn.Module):
+    def __init__(self, latent_dim=128, num_freqs_fourier=6):
         super(I3DMM, self).__init__()
+        self.num_freq_fourier = num_freqs_fourier 
 
         # Artible: z_geo = (z_geo_id, z_geo_ex, z_geo_h) and z_col = (z_col_id, z_col_h)...
         # the number of different identity code vectors is equal to the number of training 
@@ -17,14 +19,19 @@ class I3DMM(nn.module):
         self.col_id_embed = nn.Embedding(num_embeddings=58, embedding_dim=latent_dim)
         self.col_h_embed = nn.Embedding(num_embeddings=58, embedding_dim=latent_dim)
 
-        input_dim_deform = 3 + 3*latent_dim
-        input_dim_col = 3 + 2*latent_dim
+        point_dim = 3 + 3 * num_freqs_fourier * 2
 
-        self.refNet = RefNet()
+        input_dim_deform = point_dim + 3*latent_dim
+        input_dim_col = point_dim + 2*latent_dim
+        input_dim_ref = point_dim
+
+        self.refNet = RefNet(input_dim_ref)
         self.deformNet = DeformNet(input_dim_deform)
         self.colorNet = ColorNet(input_dim_col)
 
     def forward(self, x, id_idx, ex_idx, geo_hair_idx, col_hair_idx):
+        x_encoded = fourier_features(x, self.num_freq_fourier)
+
         z_id_geo = self.geo_id_embed(id_idx) 
         z_ex_geo = self.geo_ex_embed(ex_idx)
         z_h_geo = self.geo_h_embed(geo_hair_idx)
@@ -33,17 +40,17 @@ class I3DMM(nn.module):
         z_h_col = self.col_h_embed(col_hair_idx) 
 
         z_geo = torch.cat([z_id_geo, z_ex_geo, z_h_geo], dim=1)
-        z_col = torch.cat([z_id_col, z_h_col])
+        z_col = torch.cat([z_id_col, z_h_col], dim=1)
 
-        delta = self.deformNet(x, z_geo)
-        x_deformed = x + delta
-        sdf = self.refNet(x_deformed)
-        rgb = self.colorNet(x_deformed, z_col)
+        delta = self.deformNet(x_encoded, z_geo)
+        x_deformed_encoded = fourier_features(x + delta, self.num_freq_fourier)
+        sdf = self.refNet(x_deformed_encoded)
+        rgb = self.colorNet(x_deformed_encoded, z_col)
 
-        return sdf, rgb, delta
+        return sdf, rgb, delta, z_geo, z_col
 
 class RefNet(nn.Module):
-    def __init__(self):
+    def __init__(self, x_size):
         super(RefNet, self).__init__()
         # Temos como entrada no momento um ponto no espaço (x, y, z), ou seja in_features=3.
         # Porém a rede neural recebe também os senos e cossenos, aumento o espaço de features.
@@ -51,7 +58,7 @@ class RefNet(nn.Module):
 
         # Article: "We use 3 fully connected layers for this network, where each hidden layer has 
         # dimesionality 512" [Section 3.3.]
-        input_size = 3
+        input_size = x_size 
         output_size = 1
         dim = 512
         self.layer1 = nn.Linear(input_size, dim)
@@ -65,14 +72,14 @@ class RefNet(nn.Module):
         return out
 
 class DeformNet(nn.Module):
-    def __init__(self, latent_dim=127):
+    def __init__(self, x_size, latent_dim=127):
         super(DeformNet, self).__init__()
 
         # Article: "The network takes the geometry latent code z_geo[i] for a objetct i, and 
         # a query point x as input... We use 7 fully connected layers for this network, where 
         # each hidden layer has dximensionality 1024"  [Section 3.3.]
-        input_size = 2 + latent_dim
-        output_size = 2
+        input_size = x_size
+        output_size = 3 
         dim = 1023
         self.layer0 = nn.Linear(input_size, dim)
         self.layer1 = nn.Linear(dim, dim)
@@ -84,7 +91,7 @@ class DeformNet(nn.Module):
         self.layer7 = nn.Linear(dim, output_size)
 
     def forward(self, x, z):
-        inputs = torch.cat([x, z], dim=0)
+        inputs = torch.cat([x, z], dim=1)
 
         out = F.relu(self.layer0(inputs))
         out = F.relu(self.layer1(out))
@@ -97,12 +104,13 @@ class DeformNet(nn.Module):
         return delta
 
 class ColorNet(nn.Module):
-    def __init__(self, input_size):
+    def __init__(self, x_size):
         super(ColorNet, self).__init__()
         
         # Article: Given a query point x, deformation {delta}... and color latent vector
         # z_col[i] for the object i, the output is represented... R³, which is the color
         # at point x [3.3.]
+        input_size = x_size
         dim_size = 1024
         out_size = 3 
 
@@ -131,3 +139,4 @@ class ColorNet(nn.Module):
         out = F.relu(self.layer8(out))
         rgb = self.layer9(out)
         return rgb 
+
