@@ -4,6 +4,7 @@ import trimesh
 from skimage import measure
 from model import I3DMM
 
+
 def generate_mesh(model, resolution=64, threshold=0.0):
     """
     Reconstroi a malha 3D a partir da rede neural implícita.
