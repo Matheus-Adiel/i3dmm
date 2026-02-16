@@ -52,9 +52,6 @@ class I3DMM(nn.Module):
 class RefNet(nn.Module):
     def __init__(self, x_size):
         super(RefNet, self).__init__()
-        # Temos como entrada no momento um ponto no espaço (x, y, z), ou seja in_features=3.
-        # Porém a rede neural recebe também os senos e cossenos, aumento o espaço de features.
-        # Portanto, a quantidade de entradas será mudada futuramente.
 
         # Article: "We use 3 fully connected layers for this network, where each hidden layer has 
         # dimesionality 512" [Section 3.3.]

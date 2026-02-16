@@ -1,49 +1,66 @@
 import torch
 import torch.optim as optim
-from model import I3DMM, DeformNet
+from model import I3DMM
 from loss import total_loss
 from utils import fourier_features
 
 batch_size = 4
-# Article: "we use the Adam solver... We train for 1000 epochs with a learning rate of 0.0005" [Sec. 4.]
-epochs = 1000
+epochs = 2000  
 learning_rate = 0.0005
-loss_weights = {'Wg': 1, 'Wc': 1, 'Ws': 1, 'Wr': 1, 'Wlm': 1}
+loss_weights = {'Wg': 1.0, 'Wc': 1.0, 'Ws': 1.0, 'Wr': 0.01, 'Wlm': 1.0}
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-i3dmm_model = I3DMM()
+print(f"Rodando em: {device}")
+
+i3dmm_model = I3DMM().to(device)
 optimizer = optim.Adam(i3dmm_model.parameters(), lr=learning_rate)
 
-# random numbers for test training
-x = torch.randn(batch_size, 3)
-id_idx = torch.randint(0, 58, (batch_size,))
-ex_idx = torch.randint(0, 10, (batch_size,))
-geo_hair_idx = torch.randint(0, 4, (batch_size,))
-col_hair_idx = torch.randint(0, 3, (batch_size,))
+print("Gerando dados sintéticos fixos...")
 
-sdf_gt = torch.randn(batch_size, 1)
-col_gt = torch.randn(batch_size, 3)
+x_fixed = torch.randn(batch_size, 3).to(device)
 
-landmarks_gt = torch.randn(batch_size, 68, 3)
+id_idx_fixed = torch.randint(0, 58, (batch_size,)).to(device)
+ex_idx_fixed = torch.randint(0, 10, (batch_size,)).to(device)
+geo_h_fixed = torch.randint(0, 4, (batch_size,)).to(device)
+col_h_fixed = torch.randint(0, 3, (batch_size,)).to(device)
 
-results = []
+sdf_gt_fixed = torch.randn(batch_size, 1).to(device) # Distância real
+col_gt_fixed = torch.rand(batch_size, 3).to(device)  # Cor real
+landmarks_gt_fixed = torch.randn(batch_size, 68, 3).to(device) # 68 landmarks reais
+
+print("Iniciando treinamento...")
 
 for epoch in range(epochs):
-
     optimizer.zero_grad()
 
-    sdf_pred, col_pred, delta, z_geo, z_col = i3dmm_model(x, id_idx, ex_idx, geo_hair_idx, col_hair_idx) #
+    sdf_pred, col_pred, delta, z_geo, z_col = i3dmm_model(
+        x_fixed, id_idx_fixed, ex_idx_fixed, geo_h_fixed, col_h_fixed
+    )
 
-    lm_flat = landmarks_gt.view(-1, 3)
+    lm_flat = landmarks_gt_fixed.view(-1, 3) 
+    
     lm_encoded = fourier_features(lm_flat, 6)
+    
     z_geo_expanded = z_geo.unsqueeze(1).expand(-1, 68, -1).reshape(-1, 384)
+    
     delta_lm = i3dmm_model.deformNet(lm_encoded, z_geo_expanded)
+    
     landmarks_pred_ref = lm_flat + delta_lm
+    
     landmarks_pred_ref = landmarks_pred_ref.view(batch_size, 68, 3)
 
+    loss, l_geo, l_def, l_col, l_reg, l_lm = total_loss(
+        loss_weights, 
+        z_geo, z_col, 
+        delta, 
+        landmarks_pred_ref, 
+        col_pred, col_gt_fixed, 
+        sdf_pred, sdf_gt_fixed, 
+        clamp_value=0.1
+    )
     
-    loss, loss_geo, loss_def, loss_col, loss_reg, loss_lm = total_loss(loss_weights, z_geo, z_col, delta, landmarks_pred_ref, 
-                                                                       col_pred, col_gt, sdf_pred, sdf_gt, clamp_value=0.1) #
     loss.backward()
     optimizer.step()
 
-    print(f"Epoch {epoch} | Total Loss: {loss.item():.4f}")
+    if epoch % 100 == 0:
+        print(f"Epoch {epoch} | Total Loss: {loss.item():.6f} | Geo: {l_geo.item():.4f} | LM: {l_lm.item():.4f}")
